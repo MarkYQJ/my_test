@@ -6,7 +6,6 @@ sync_task:
     # 組合含 Token 的 URL (隱藏機密資訊)
     - GITHUB_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/MarkYQJ/my_test.git"
     - GITLAB_URL="http://cj_lee:${GITLAB_TOKEN}@10.78.26.44:30000/cj_team_test/my_test.git"
-    # - GITLAB_URL="http://gitlab-ci-token:${CI_JOB_TOKEN}@10.78.26.44:30000/cj_team/my_test.git"
     
     # 執行鏡像同步
     - git clone --mirror $GITHUB_URL temp_repo
