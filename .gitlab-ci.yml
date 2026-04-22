@@ -14,3 +14,5 @@ sync_task:
     - git push --mirror
   only:
     - schedules # 僅在排程觸發時執行
+  tags:
+    - cloudinfra-setup-global-arm
