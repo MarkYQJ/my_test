@@ -1,19 +1,68 @@
-sync_bidirectional:
+# Branch 所有權規則：
+#   GitHub 負責：main, feature/*, release/*, hotfix/* 等標準 branch
+#   GitLab 負責：gitlab/* 命名空間下的 branch
+#
+# 同一個 branch 只會從一個方向同步，不會互相覆蓋。
+# 兩個 job 可設定不同排程時段，進一步降低風險。
+
+sync_github_to_gitlab:
   image: alpine:latest
   before_script:
     - apk add git
-  script:
+    - export GIT_TERMINAL_PROMPT=0
     - GITHUB_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/MarkYQJ/my_test.git"
     - GITLAB_URL="http://cj_lee:${GITLAB_TOKEN}@10.78.26.44:30000/cj_team_test/my_test.git"
-    - git init --bare temp_repo
-    - cd temp_repo
-    - git remote add github $GITHUB_URL
-    - git remote add gitlab $GITLAB_URL
-    - git fetch github '+refs/*:refs/*'
-    - git fetch gitlab '+refs/*:refs/*'
-    - git push --mirror github
-    - git push --mirror gitlab
-  only:
-    - schedules
+  script:
+    - git clone --bare $GITHUB_URL repo_gh
+    - cd repo_gh
+    - |
+      echo "=== GitHub → GitLab ==="
+      fail=0
+      for ref in $(git for-each-ref --format='%(refname)' refs/heads/); do
+        branch="${ref#refs/heads/}"
+        case "$branch" in
+          gitlab/*)
+            echo "[SKIP] $branch (GitLab-owned)"
+            ;;
+          *)
+            echo "[SYNC] $branch"
+            git push --force $GITLAB_URL "$ref:$ref" || { echo "[FAIL] $branch"; fail=1; }
+            ;;
+        esac
+      done
+      [ "$fail" -eq 0 ] || exit 1
+    - git push $GITLAB_URL 'refs/tags/*:refs/tags/*' || true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  tags:
+    - cloudinfra-setup-global-arm
+
+sync_gitlab_to_github:
+  image: alpine:latest
+  before_script:
+    - apk add git
+    - export GIT_TERMINAL_PROMPT=0
+    - GITHUB_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/MarkYQJ/my_test.git"
+    - GITLAB_URL="http://cj_lee:${GITLAB_TOKEN}@10.78.26.44:30000/cj_team_test/my_test.git"
+  script:
+    - git clone --bare $GITLAB_URL repo_gl
+    - cd repo_gl
+    - |
+      echo "=== GitLab → GitHub ==="
+      fail=0
+      has_branches=false
+      for ref in $(git for-each-ref --format='%(refname)' refs/heads/gitlab/); do
+        branch="${ref#refs/heads/}"
+        echo "[SYNC] $branch"
+        git push --force $GITHUB_URL "$ref:$ref" || { echo "[FAIL] $branch"; fail=1; }
+        has_branches=true
+      done
+      if [ "$has_branches" = false ]; then
+        echo "[INFO] No gitlab/* branches to sync"
+      fi
+      [ "$fail" -eq 0 ] || exit 1
+    - git push $GITHUB_URL 'refs/tags/*:refs/tags/*' || true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
   tags:
     - cloudinfra-setup-global-arm
