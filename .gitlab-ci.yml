@@ -1,14 +1,22 @@
 bidirectional_sync:
   image: alpine:latest
   before_script:
-    - apk add git
+    - apk add git curl jq
   variables:
     GIT_TERMINAL_PROMPT: "0"
   script:
     - GITHUB_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/MarkYQJ/my_test.git"
     - GITLAB_URL="http://cj_lee:${GITLAB_TOKEN}@10.78.26.44:30000/cj_team_test/my_test.git"
     - chmod +x scripts/bidirectional-sync.sh
-    - sh scripts/bidirectional-sync.sh "$GITHUB_URL" "$GITLAB_URL"
+    - |
+      sh scripts/bidirectional-sync.sh \
+        "$GITHUB_URL" \
+        "$GITLAB_URL" \
+        "$GITHUB_TOKEN" \
+        "$GITLAB_TOKEN" \
+        "MarkYQJ/my_test" \
+        "${CI_PROJECT_ID}" \
+        "http://10.78.26.44:30000"
   only:
     - schedules
   tags:
