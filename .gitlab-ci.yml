@@ -8,7 +8,8 @@ sync_github_to_gitlab:
     - git clone --mirror $GITHUB_URL temp_repo
     - cd temp_repo
     - git remote set-url --push origin $GITLAB_URL
-    - git push --mirror
+    - git push origin 'refs/heads/*:refs/heads/*' --force
+    - git push origin 'refs/tags/*:refs/tags/*' --force
   only:
     - schedules
   tags:
@@ -24,7 +25,8 @@ sync_gitlab_to_github:
     - git clone --mirror $GITLAB_URL temp_repo
     - cd temp_repo
     - git remote set-url --push origin $GITHUB_URL
-    - git push --mirror
+    - git push origin 'refs/heads/*:refs/heads/*' --force
+    - git push origin 'refs/tags/*:refs/tags/*' --force
   only:
     - schedules
   tags:
