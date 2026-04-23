@@ -1,18 +1,30 @@
-sync_bidirectional:
+sync_github_to_gitlab:
   image: alpine:latest
   before_script:
     - apk add git
   script:
     - GITHUB_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/MarkYQJ/my_test.git"
     - GITLAB_URL="http://cj_lee:${GITLAB_TOKEN}@10.78.26.44:30000/cj_team_test/my_test.git"
-    - git init --bare temp_repo
+    - git clone --mirror $GITHUB_URL temp_repo
     - cd temp_repo
-    - git remote add github $GITHUB_URL
-    - git remote add gitlab $GITLAB_URL
-    - git fetch github '+refs/*:refs/*'
-    - git fetch gitlab '+refs/*:refs/*'
-    - git push --mirror github
-    - git push --mirror gitlab
+    - git remote set-url --push origin $GITLAB_URL
+    - git push --mirror
+  only:
+    - schedules
+  tags:
+    - cloudinfra-setup-global-arm
+
+sync_gitlab_to_github:
+  image: alpine:latest
+  before_script:
+    - apk add git
+  script:
+    - GITHUB_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/MarkYQJ/my_test.git"
+    - GITLAB_URL="http://cj_lee:${GITLAB_TOKEN}@10.78.26.44:30000/cj_team_test/my_test.git"
+    - git clone --mirror $GITLAB_URL temp_repo
+    - cd temp_repo
+    - git remote set-url --push origin $GITHUB_URL
+    - git push --mirror
   only:
     - schedules
   tags:
