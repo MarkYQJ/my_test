@@ -22,11 +22,21 @@ mask_credentials() {
 }
 
 git_push_masked() {
-  git push "$@" 2>&1 | mask_credentials
+  local _tmp _rc=0
+  _tmp=$(mktemp)
+  git push "$@" >"$_tmp" 2>&1 || _rc=$?
+  mask_credentials < "$_tmp"
+  rm -f "$_tmp"
+  return $_rc
 }
 
 git_fetch_masked() {
-  git fetch "$@" 2>&1 | mask_credentials
+  local _tmp _rc=0
+  _tmp=$(mktemp)
+  git fetch "$@" >"$_tmp" 2>&1 || _rc=$?
+  mask_credentials < "$_tmp"
+  rm -f "$_tmp"
+  return $_rc
 }
 
 list_remote_branches() {
@@ -46,7 +56,7 @@ load_previous_state() {
   if git -C "$tmpdir/state-repo" fetch "$url" "$STATE_REF:$STATE_REF" >/dev/null 2>&1; then
     git -C "$tmpdir/state-repo" show "$STATE_REF:$STATE_BRANCH_FILE" > "$tmpdir/prev-branches.txt" 2>/dev/null || true
     git -C "$tmpdir/state-repo" show "$STATE_REF:$STATE_TAG_FILE" > "$tmpdir/prev-tags.txt" 2>/dev/null || true
-    echo "  Loaded state from $url"
+    echo "  Loaded state from $(echo "$url" | mask_credentials)"
   else
     echo "  No previous state found (first run)"
   fi
@@ -183,6 +193,9 @@ echo "--- Fetching commits from both remotes ---"
 git_fetch_masked github '+refs/heads/*:refs/remotes/github/*' '+refs/tags/*:refs/tags/github/*' || true
 git_fetch_masked gitlab '+refs/heads/*:refs/remotes/gitlab/*' '+refs/tags/*:refs/tags/gitlab/*' || true
 
+branch_delete_targets=$(mktemp)
+tag_delete_targets=$(mktemp)
+
 echo ""
 echo "--- Processing branch actions ---"
 
@@ -192,19 +205,21 @@ while IFS=' ' read -r action ref || [ -n "$action" ]; do
   case "$action" in
     DELETE_FROM_GITLAB)
       echo "  DELETE '$ref' from GitLab (was deleted on GitHub)"
+      echo "$ref" >> "$branch_delete_targets"
       git_push_masked gitlab --delete "refs/heads/$ref" || echo "    (already absent)"
       ;;
     DELETE_FROM_GITHUB)
       echo "  DELETE '$ref' from GitHub (was deleted on GitLab)"
+      echo "$ref" >> "$branch_delete_targets"
       git_push_masked github --delete "refs/heads/$ref" || echo "    (already absent)"
       ;;
     PUSH_TO_GITLAB)
       echo "  PUSH '$ref' to GitLab (new on GitHub)"
-      git_push_masked gitlab "refs/remotes/github/$ref:refs/heads/$ref" --force || echo "    (push failed)"
+      git_push_masked gitlab "refs/remotes/github/$ref:refs/heads/$ref" || echo "    (push failed)"
       ;;
     PUSH_TO_GITHUB)
       echo "  PUSH '$ref' to GitHub (new on GitLab)"
-      git_push_masked github "refs/remotes/gitlab/$ref:refs/heads/$ref" --force || echo "    (push failed)"
+      git_push_masked github "refs/remotes/gitlab/$ref:refs/heads/$ref" || echo "    (push failed)"
       ;;
     SYNC)
       local_gh=$(git rev-parse "refs/remotes/github/$ref" 2>/dev/null || echo "")
@@ -216,22 +231,20 @@ while IFS=' ' read -r action ref || [ -n "$action" ]; do
         echo "  SKIP '$ref' (already in sync)"
       elif [ -z "$local_gh" ]; then
         echo "  SYNC '$ref': GitLab -> GitHub"
-        git_push_masked github "refs/remotes/gitlab/$ref:refs/heads/$ref" --force || echo "    (push failed)"
+        git_push_masked github "refs/remotes/gitlab/$ref:refs/heads/$ref" || echo "    (push failed)"
       elif [ -z "$local_gl" ]; then
         echo "  SYNC '$ref': GitHub -> GitLab"
-        git_push_masked gitlab "refs/remotes/github/$ref:refs/heads/$ref" --force || echo "    (push failed)"
+        git_push_masked gitlab "refs/remotes/github/$ref:refs/heads/$ref" || echo "    (push failed)"
+      elif git merge-base --is-ancestor "$local_gh" "$local_gl" 2>/dev/null; then
+        echo "  SYNC '$ref': GitLab -> GitHub (fast-forward)"
+        git_push_masked github "refs/remotes/gitlab/$ref:refs/heads/$ref" || echo "    (push failed)"
+      elif git merge-base --is-ancestor "$local_gl" "$local_gh" 2>/dev/null; then
+        echo "  SYNC '$ref': GitHub -> GitLab (fast-forward)"
+        git_push_masked gitlab "refs/remotes/github/$ref:refs/heads/$ref" || echo "    (push failed)"
       else
-        gh_time=$(git log -1 --format='%ct' "$local_gh" 2>/dev/null || echo "")
-        gl_time=$(git log -1 --format='%ct' "$local_gl" 2>/dev/null || echo "")
-        if [ -z "$gh_time" ] || [ -z "$gl_time" ]; then
-          echo "  WARNING: cannot determine commit time for '$ref', skipping"
-        elif [ "$gh_time" -ge "$gl_time" ]; then
-          echo "  SYNC '$ref': GitHub -> GitLab (newer commit)"
-          git_push_masked gitlab "refs/remotes/github/$ref:refs/heads/$ref" --force || echo "    (push failed)"
-        else
-          echo "  SYNC '$ref': GitLab -> GitHub (newer commit)"
-          git_push_masked github "refs/remotes/gitlab/$ref:refs/heads/$ref" --force || echo "    (push failed)"
-        fi
+        echo "  CONFLICT '$ref': diverged on both sides, skipping (manual resolution needed)"
+        echo "    GitHub: $local_gh"
+        echo "    GitLab: $local_gl"
       fi
       ;;
   esac
@@ -246,19 +259,21 @@ while IFS=' ' read -r action ref || [ -n "$action" ]; do
   case "$action" in
     DELETE_FROM_GITLAB)
       echo "  DELETE tag '$ref' from GitLab (was deleted on GitHub)"
+      echo "$ref" >> "$tag_delete_targets"
       git_push_masked gitlab --delete "refs/tags/$ref" || echo "    (already absent)"
       ;;
     DELETE_FROM_GITHUB)
       echo "  DELETE tag '$ref' from GitHub (was deleted on GitLab)"
+      echo "$ref" >> "$tag_delete_targets"
       git_push_masked github --delete "refs/tags/$ref" || echo "    (already absent)"
       ;;
     PUSH_TO_GITLAB)
       echo "  PUSH tag '$ref' to GitLab (new on GitHub)"
-      git_push_masked gitlab "refs/tags/github/$ref:refs/tags/$ref" --force || echo "    (push failed)"
+      git_push_masked gitlab "refs/tags/github/$ref:refs/tags/$ref" || echo "    (push failed)"
       ;;
     PUSH_TO_GITHUB)
       echo "  PUSH tag '$ref' to GitHub (new on GitLab)"
-      git_push_masked github "refs/tags/gitlab/$ref:refs/tags/$ref" --force || echo "    (push failed)"
+      git_push_masked github "refs/tags/gitlab/$ref:refs/tags/$ref" || echo "    (push failed)"
       ;;
     SYNC)
       local_gh=$(git rev-parse "refs/tags/github/$ref" 2>/dev/null || echo "")
@@ -268,13 +283,14 @@ while IFS=' ' read -r action ref || [ -n "$action" ]; do
         echo "  SKIP tag '$ref' (already in sync)"
       elif [ -z "$local_gh" ]; then
         echo "  SYNC tag '$ref': GitLab -> GitHub"
-        git_push_masked github "refs/tags/gitlab/$ref:refs/tags/$ref" --force || echo "    (push failed)"
+        git_push_masked github "refs/tags/gitlab/$ref:refs/tags/$ref" || echo "    (push failed)"
       elif [ -z "$local_gl" ]; then
         echo "  SYNC tag '$ref': GitHub -> GitLab"
-        git_push_masked gitlab "refs/tags/github/$ref:refs/tags/$ref" --force || echo "    (push failed)"
+        git_push_masked gitlab "refs/tags/github/$ref:refs/tags/$ref" || echo "    (push failed)"
       else
-        echo "  SYNC tag '$ref': GitHub -> GitLab (GitHub wins for conflicts)"
-        git_push_masked gitlab "refs/tags/github/$ref:refs/tags/$ref" --force || echo "    (push failed)"
+        echo "  CONFLICT tag '$ref': different on both sides, skipping (manual resolution needed)"
+        echo "    GitHub: $local_gh"
+        echo "    GitLab: $local_gl"
       fi
       ;;
   esac
@@ -282,15 +298,39 @@ done < "$tag_actions"
 
 echo ""
 echo "--- Saving sync state ---"
+post_gh_branches=$(mktemp)
+post_gl_branches=$(mktemp)
+post_gh_tags=$(mktemp)
+post_gl_tags=$(mktemp)
 final_branches=$(mktemp)
 final_tags=$(mktemp)
 
-list_remote_branches "$GITHUB_URL" > "$final_branches"
-list_remote_branches "$GITLAB_URL" >> "$final_branches"
+list_remote_branches "$GITHUB_URL" > "$post_gh_branches"
+list_remote_branches "$GITLAB_URL" > "$post_gl_branches"
+comm -12 "$post_gh_branches" "$post_gl_branches" > "$final_branches"
+
+while IFS= read -r dref || [ -n "$dref" ]; do
+  [ -z "$dref" ] && continue
+  in_post_gh=$(grep -Fxc "$dref" "$post_gh_branches" 2>/dev/null || echo 0)
+  in_post_gl=$(grep -Fxc "$dref" "$post_gl_branches" 2>/dev/null || echo 0)
+  if [ "$in_post_gh" -gt 0 ] || [ "$in_post_gl" -gt 0 ]; then
+    echo "$dref" >> "$final_branches"
+  fi
+done < "$branch_delete_targets"
 sort -u "$final_branches" -o "$final_branches"
 
-list_remote_tags "$GITHUB_URL" > "$final_tags"
-list_remote_tags "$GITLAB_URL" >> "$final_tags"
+list_remote_tags "$GITHUB_URL" > "$post_gh_tags"
+list_remote_tags "$GITLAB_URL" > "$post_gl_tags"
+comm -12 "$post_gh_tags" "$post_gl_tags" > "$final_tags"
+
+while IFS= read -r dref || [ -n "$dref" ]; do
+  [ -z "$dref" ] && continue
+  in_post_gh=$(grep -Fxc "$dref" "$post_gh_tags" 2>/dev/null || echo 0)
+  in_post_gl=$(grep -Fxc "$dref" "$post_gl_tags" 2>/dev/null || echo 0)
+  if [ "$in_post_gh" -gt 0 ] || [ "$in_post_gl" -gt 0 ]; then
+    echo "$dref" >> "$final_tags"
+  fi
+done < "$tag_delete_targets"
 sort -u "$final_tags" -o "$final_tags"
 
 save_state "$GITLAB_URL" "$final_branches" "$final_tags"
@@ -298,10 +338,14 @@ save_state "$GITHUB_URL" "$final_branches" "$final_tags"
 
 echo ""
 echo "=== Bidirectional Sync Complete ==="
-echo "  Final branches: $(wc -l < "$final_branches" | tr -d ' ')"
-echo "  Final tags: $(wc -l < "$final_tags" | tr -d ' ')"
+echo "  GitHub branches: $(wc -l < "$post_gh_branches" | tr -d ' ')"
+echo "  GitLab branches: $(wc -l < "$post_gl_branches" | tr -d ' ')"
+echo "  Tracked (synced on both): branches=$(wc -l < "$final_branches" | tr -d ' ') tags=$(wc -l < "$final_tags" | tr -d ' ')"
+
+rm -f "$post_gh_branches" "$post_gl_branches" "$post_gh_tags" "$post_gl_tags"
 
 cd /
 rm -rf "$workdir" "$STATE_TMPDIR"
 rm -f "$gh_branches" "$gh_tags" "$gl_branches" "$gl_tags"
 rm -f "$branch_actions" "$tag_actions" "$final_branches" "$final_tags"
+rm -f "$branch_delete_targets" "$tag_delete_targets"
