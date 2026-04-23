@@ -1,18 +1,31 @@
-sync_task:
+sync_github_to_gitlab:
   image: alpine:latest
   before_script:
     - apk add git
   script:
-    # 組合含 Token 的 URL (隱藏機密資訊)
     - GITHUB_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/MarkYQJ/my_test.git"
     - GITLAB_URL="http://cj_lee:${GITLAB_TOKEN}@10.78.26.44:30000/cj_team_test/my_test.git"
-    
-    # 執行鏡像同步
     - git clone --mirror $GITHUB_URL temp_repo
     - cd temp_repo
     - git remote set-url --push origin $GITLAB_URL
     - git push --mirror
   only:
-    - schedules # 僅在排程觸發時執行
+    - schedules
+  tags:
+    - cloudinfra-setup-global-arm
+
+sync_gitlab_to_github:
+  image: alpine:latest
+  before_script:
+    - apk add git
+  script:
+    - GITHUB_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/MarkYQJ/my_test.git"
+    - GITLAB_URL="http://cj_lee:${GITLAB_TOKEN}@10.78.26.44:30000/cj_team_test/my_test.git"
+    - git clone --mirror $GITLAB_URL temp_repo
+    - cd temp_repo
+    - git remote set-url --push origin $GITHUB_URL
+    - git push --mirror
+  only:
+    - schedules
   tags:
     - cloudinfra-setup-global-arm
