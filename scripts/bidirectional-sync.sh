@@ -1,6 +1,11 @@
 #!/bin/sh
 set -e
 
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-sync-bot}"
+export GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-sync-bot@noreply}"
+export GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-sync-bot}"
+export GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-sync-bot@noreply}"
+
 GITHUB_URL="$1"
 GITLAB_URL="$2"
 STATE_REF="refs/sync/state"
