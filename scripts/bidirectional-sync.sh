@@ -12,6 +12,8 @@ STATE_REF="refs/sync/state"
 STATE_BRANCH_FILE="sync-state-branches.txt"
 STATE_TAG_FILE="sync-state-tags.txt"
 
+SYNC_HAS_CONFLICTS=0
+
 if [ -z "$GITHUB_URL" ] || [ -z "$GITLAB_URL" ]; then
   echo "Usage: $0 <github_url> <gitlab_url>"
   exit 1
@@ -247,6 +249,7 @@ while IFS=' ' read -r action ref || [ -n "$action" ]; do
         echo "    GitLab: $local_gl"
         if ! git checkout -B _merge_work "$local_gh" >/dev/null 2>&1; then
           echo "    ERROR: failed to checkout GitHub ref for merge, skipping"
+          SYNC_HAS_CONFLICTS=1
         elif git merge --no-edit -m "sync: auto-merge diverged branch '$ref'" "$local_gl" >/dev/null 2>&1; then
           merged_sha=$(git rev-parse HEAD)
           echo "    Merge successful: $merged_sha"
@@ -255,6 +258,7 @@ while IFS=' ' read -r action ref || [ -n "$action" ]; do
         else
           git merge --abort 2>/dev/null || true
           echo "    CONFLICT '$ref': merge has file-level conflicts, skipping (manual resolution needed)"
+          SYNC_HAS_CONFLICTS=1
         fi
         git checkout --orphan _empty >/dev/null 2>&1 || true
         git rm -rf . >/dev/null 2>&1 || true
@@ -305,6 +309,7 @@ while IFS=' ' read -r action ref || [ -n "$action" ]; do
         echo "  CONFLICT tag '$ref': different on both sides, skipping (manual resolution needed)"
         echo "    GitHub: $local_gh"
         echo "    GitLab: $local_gl"
+        SYNC_HAS_CONFLICTS=1
       fi
       ;;
   esac
@@ -363,3 +368,9 @@ rm -rf "$workdir" "$STATE_TMPDIR"
 rm -f "$gh_branches" "$gh_tags" "$gl_branches" "$gl_tags"
 rm -f "$branch_actions" "$tag_actions" "$final_branches" "$final_tags"
 rm -f "$branch_delete_targets" "$tag_delete_targets"
+
+if [ "$SYNC_HAS_CONFLICTS" -ne 0 ]; then
+  echo ""
+  echo "ERROR: Sync completed with unresolved conflicts. Manual resolution is required."
+  exit 1
+fi
