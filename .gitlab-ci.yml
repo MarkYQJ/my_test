@@ -1,32 +1,14 @@
-sync_github_to_gitlab:
+bidirectional_sync:
   image: alpine:latest
   before_script:
     - apk add git
+  variables:
+    GIT_TERMINAL_PROMPT: "0"
   script:
     - GITHUB_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/MarkYQJ/my_test.git"
     - GITLAB_URL="http://cj_lee:${GITLAB_TOKEN}@10.78.26.44:30000/cj_team_test/my_test.git"
-    - git clone --bare $GITHUB_URL temp_repo
-    - cd temp_repo
-    - git remote set-url --push origin $GITLAB_URL
-    - git push origin 'refs/heads/*:refs/heads/*' --force
-    - git push origin 'refs/tags/*:refs/tags/*' --force
-  only:
-    - schedules
-  tags:
-    - cloudinfra-setup-global-arm
-
-sync_gitlab_to_github:
-  image: alpine:latest
-  before_script:
-    - apk add git
-  script:
-    - GITHUB_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/MarkYQJ/my_test.git"
-    - GITLAB_URL="http://cj_lee:${GITLAB_TOKEN}@10.78.26.44:30000/cj_team_test/my_test.git"
-    - git clone --bare $GITLAB_URL temp_repo
-    - cd temp_repo
-    - git remote set-url --push origin $GITHUB_URL
-    - git push origin 'refs/heads/*:refs/heads/*' --force
-    - git push origin 'refs/tags/*:refs/tags/*' --force
+    - chmod +x scripts/bidirectional-sync.sh
+    - sh scripts/bidirectional-sync.sh "$GITHUB_URL" "$GITLAB_URL"
   only:
     - schedules
   tags:
