@@ -183,7 +183,7 @@ else
 fi
 
 workdir=$(mktemp -d)
-git init --bare "$workdir/repo" >/dev/null 2>&1
+git init "$workdir/repo" >/dev/null 2>&1
 cd "$workdir/repo"
 git remote add github "$GITHUB_URL"
 git remote add gitlab "$GITLAB_URL"
@@ -242,9 +242,23 @@ while IFS=' ' read -r action ref || [ -n "$action" ]; do
         echo "  SYNC '$ref': GitHub -> GitLab (fast-forward)"
         git_push_masked gitlab "refs/remotes/github/$ref:refs/heads/$ref" || echo "    (push failed)"
       else
-        echo "  CONFLICT '$ref': diverged on both sides, skipping (manual resolution needed)"
+        echo "  MERGE '$ref': diverged on both sides, attempting merge..."
         echo "    GitHub: $local_gh"
         echo "    GitLab: $local_gl"
+        if ! git checkout -B _merge_work "$local_gh" >/dev/null 2>&1; then
+          echo "    ERROR: failed to checkout GitHub ref for merge, skipping"
+        elif git merge --no-edit -m "sync: auto-merge diverged branch '$ref'" "$local_gl" >/dev/null 2>&1; then
+          merged_sha=$(git rev-parse HEAD)
+          echo "    Merge successful: $merged_sha"
+          git_push_masked github "$merged_sha:refs/heads/$ref" || echo "    (push to GitHub failed)"
+          git_push_masked gitlab "$merged_sha:refs/heads/$ref" || echo "    (push to GitLab failed)"
+        else
+          git merge --abort 2>/dev/null || true
+          echo "    CONFLICT '$ref': merge has file-level conflicts, skipping (manual resolution needed)"
+        fi
+        git checkout --orphan _empty >/dev/null 2>&1 || true
+        git rm -rf . >/dev/null 2>&1 || true
+        git clean -fd >/dev/null 2>&1 || true
       fi
       ;;
   esac
